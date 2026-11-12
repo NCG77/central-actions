@@ -1,0 +1,20 @@
+﻿name: Reusable Branch & Preview Cleanup
+on:
+  workflow_call:
+    inputs:
+      branch-name: { required: true, type: string }
+      is-merged: { required: true, type: boolean }
+      head-repo: { required: true, type: string }
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions: { contents: write, deployments: write }
+    steps:
+      - if: inputs.is-merged && inputs.head-repo == github.repository && inputs.branch-name != 'main' && inputs.branch-name != 'master'
+        env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}', BRANCH: '${{ inputs.branch-name }}' }
+        run: git push origin --delete "$BRANCH" || true
+      - env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}', REPO: '${{ github.repository }}', BRANCH: '${{ inputs.branch-name }}' }
+        run: |
+          for ID in $(gh api "repos/$REPO/deployments?ref=$BRANCH" --jq '.[].id'); do
+            gh api -X POST "repos/$REPO/deployments/$ID/statuses" -f state="inactive" || true
+          done

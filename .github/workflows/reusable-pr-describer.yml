@@ -1,0 +1,46 @@
+﻿name: Reusable Gemini PR Describer
+on:
+  workflow_call:
+    inputs:
+      pr-number: { required: true, type: number }
+      base-sha: { required: true, type: string }
+      head-sha: { required: true, type: string }
+    secrets:
+      GEMINI_API_KEY: { required: true }
+jobs:
+  describe-pr:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, pull-requests: write }
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install google-genai PyGithub
+      - env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_NAME: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+          BASE_SHA: ${{ inputs.base-sha }}
+          HEAD_SHA: ${{ inputs.head-sha }}
+        run: |
+          python - << 'EOF'
+          import os, subprocess
+          from github import Github
+          from google import genai
+          from google.genai import types
+
+          gh = Github(os.getenv("GITHUB_TOKEN"))
+          pr = gh.get_repo(os.getenv("REPO_NAME")).get_pull(int(os.getenv("PR_NUMBER")))
+          if pr.body and pr.body.strip():
+              exit(0)
+
+          commits = subprocess.run(["git", "log", f"{os.getenv('BASE_SHA')}..{os.getenv('HEAD_SHA')}", "--oneline"], capture_output=True, text=True).stdout.strip()
+          diff = subprocess.run(["git", "diff", f"{os.getenv('BASE_SHA')}...{os.getenv('HEAD_SHA')}", "--", ":(exclude)*.lock", ":(exclude)*package-lock.json"], capture_output=True, text=True).stdout[:14000]
+
+          client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+          prompt = f"Generate a concise GitHub PR description in Markdown with ## Summary, ## Architecture Impact, and ## Testing Checklist based on:\nCommits:\n{commits}\n\nDiff:\n```diff\n{diff}\n```"
+          res = client.models.generate_content(model="gemini-2.5-flash", contents=prompt, config=types.GenerateContentConfig(temperature=0.2))
+          pr.edit(body=res.text)
+          EOF
