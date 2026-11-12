@@ -1,0 +1,20 @@
+name: Reusable Semantic Release
+
+on:
+  workflow_call:
+    inputs:
+      package-type:
+        required: false
+        type: string
+        default: 'node'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          release-type: ${{ inputs.package-type }}
